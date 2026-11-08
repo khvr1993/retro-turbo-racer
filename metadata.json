@@ -1,0 +1,6 @@
+{
+  "name": "Turbo Brick Racer 99",
+  "description": "A nostalgic 90s handheld console game featuring a modern colorful 10x20 block matrix, 3-lane car dodging, turbo acceleration, and retro synth audio.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="112" fill="#090d16" />
+  <rect x="36" y="36" width="440" height="440" rx="88" fill="#111827" stroke="#1e293b" stroke-width="12" />
+  <!-- Highway lane lines -->
+  <rect x="164" y="64" width="8" height="80" rx="4" fill="#334155" />
+  <rect x="164" y="200" width="8" height="80" rx="4" fill="#334155" />
+  <rect x="164" y="336" width="8" height="80" rx="4" fill="#334155" />
+  <rect x="340" y="64" width="8" height="80" rx="4" fill="#334155" />
+  <rect x="340" y="200" width="8" height="80" rx="4" fill="#334155" />
+  <rect x="340" y="336" width="8" height="80" rx="4" fill="#334155" />
+  <!-- Top-down Emerald Apex GT Supercar in center -->
+  <g transform="translate(160, 108) scale(3)">
+    <rect x="6" y="15" width="7" height="15" rx="2.5" fill="#090d16" />
+    <rect x="51" y="15" width="7" height="15" rx="2.5" fill="#090d16" />
+    <rect x="6" y="50" width="7" height="16" rx="2.5" fill="#090d16" />
+    <rect x="51" y="50" width="7" height="16" rx="2.5" fill="#090d16" />
+    <path d="M18 7 Q32 3 46 7 L53 18 L53 64 Q53 71 45 72 L19 72 Q11 71 11 64 L11 18 Z" fill="#10b981" stroke="#ecfdf5" stroke-width="1.8" />
+    <rect x="27" y="6" width="3.5" height="65" fill="#6ee7b7" />
+    <rect x="33.5" y="6" width="3.5" height="65" fill="#6ee7b7" />
+    <path d="M16 28 Q32 23 48 28 L45 40 Q32 38 19 40 Z" fill="#0f172a" />
+    <rect x="19" y="39" width="26" height="13" rx="3" fill="#059669" />
+    <path d="M20 52 L44 52 L42 63 L22 63 Z" fill="#0f172a" />
+    <rect x="12" y="66" width="40" height="4.5" rx="1.5" fill="#0f172a" stroke="#6ee7b7" stroke-width="1" />
+    <!-- Turbo Afterburner Flames -->
+    <path d="M21 72.5 L24 86 L27 72.5 Z" fill="#f59e0b" />
+    <path d="M37 72.5 L40 86 L43 72.5 Z" fill="#f59e0b" />
+  </g>
+</svg>
