@@ -11,10 +11,44 @@ export type SoundEventType =
   | 'tick'
   | 'game-over';
 
+const MASTER_GAIN = 0.85;
+const TICK_SOUND_MIN_INTERVAL_MS = 110;
+
 class RetroSoundEngine {
   private ctx: AudioContext | null = null;
-  public muted = false;
+  private master: GainNode | null = null;
+  private muted = false;
+  private lastTickAt = 0;
   public lastSound: SoundEventType | null = null;
+
+  public get isMuted(): boolean {
+    return this.muted;
+  }
+
+  public setMuted(muted: boolean): void {
+    this.muted = muted;
+
+    if (!this.ctx) return;
+
+    const now = this.ctx.currentTime;
+    if (this.master) {
+      this.master.gain.cancelScheduledValues(now);
+      this.master.gain.setTargetAtTime(muted ? 0 : MASTER_GAIN, now, 0.02);
+    }
+    if (muted) {
+      this.ctx.suspend().catch(() => {});
+    } else {
+      this.ctx.resume().catch(() => {});
+    }
+  }
+
+  private prefersReducedMotion(): boolean {
+    return (
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    );
+  }
 
   private recordEvent(event: SoundEventType) {
     this.lastSound = event;
@@ -36,6 +70,21 @@ class RetroSoundEngine {
     }
     if (this.ctx && this.ctx.state === 'suspended') {
       this.ctx.resume().catch(() => {});
+    }
+    if (this.ctx && !this.master) {
+      const master = this.ctx.createGain();
+      master.gain.value = MASTER_GAIN;
+
+      const limiter = this.ctx.createDynamicsCompressor();
+      limiter.threshold.value = -10;
+      limiter.knee.value = 0;
+      limiter.ratio.value = 20;
+      limiter.attack.value = 0.003;
+      limiter.release.value = 0.25;
+
+      master.connect(limiter);
+      limiter.connect(this.ctx.destination);
+      this.master = master;
     }
     return this.ctx;
   }
@@ -68,7 +117,7 @@ class RetroSoundEngine {
     gain.gain.exponentialRampToValueAtTime(0.001, now + durationSec);
 
     osc.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(this.master ?? ctx.destination);
 
     osc.start(now);
     osc.stop(now + durationSec);
@@ -78,7 +127,9 @@ class RetroSoundEngine {
     if (typeof document !== 'undefined' && document.body) {
       document.body.dataset.lastHaptic = label;
     }
-    if (this.muted || typeof navigator === 'undefined') return;
+    if (this.muted || this.prefersReducedMotion() || typeof navigator === 'undefined') {
+      return;
+    }
     try {
       if (typeof navigator.vibrate === 'function') {
         navigator.vibrate(pattern);
@@ -154,6 +205,10 @@ class RetroSoundEngine {
   }
 
   public playTick(isTurbo: boolean, level: number) {
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    if (now - this.lastTickAt < TICK_SOUND_MIN_INTERVAL_MS) return;
+    this.lastTickAt = now;
+
     const baseFreq = isTurbo ? 185 + level * 12 : 110 + level * 6;
     this.playTone(baseFreq, 0.02, 'triangle', isTurbo ? 0.035 : 0.02);
   }
@@ -202,4 +257,3 @@ class RetroSoundEngine {
 }
 
 export const soundEngine = new RetroSoundEngine();
-

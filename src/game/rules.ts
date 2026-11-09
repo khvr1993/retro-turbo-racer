@@ -3,7 +3,25 @@ export const GRID_ROWS = 20;
 export const LANE_COUNT = 3;
 export const CAR_SIZE = 3;
 export const PLAYER_ROW = 16; // Occupies rows 16, 17, 18 (3x3 car at bottom of 20-row grid)
-export const TRACK_COL = 9;   // Rightmost column (index 9) acts as scrolling road track marker
+
+export const TUNING = {
+  maxLevel: 10,
+  carsPerLevel: 6,
+  baseTickMs: 210,
+  tickMsPerLevel: 14,
+  turboFactor: 0.45,
+  minTurboTickMs: 32,
+  survivalPoints: 1,
+  turboSurvivalPoints: 3,
+  passBonus: 25,
+  turboPassBonus: 50,
+  maxDoubleSpawnChance: 0.65,
+  doubleSpawnPerLevel: 0.04,
+  doubleSpawnMinRow: 5,
+  hardClearanceLevel: 7,
+  doubleSpawnMinLevel: 2,
+  hardDoubleSpawnMinLevel: 1,
+} as const;
 
 export type GamePhase = 'title' | 'playing' | 'paused' | 'gameover';
 export type CarShape = 'cross' | 'i-shape';
@@ -15,7 +33,7 @@ export interface DifficultyConfig {
   speedMultiplier: number; // < 1 means faster (shorter ms interval), > 1 means slower
   minClearanceRows: number; // Minimum empty rows before next spawn wave
   spawnProbability: number; // Chance to spawn on an eligible tick
-  doubleSpawnBase: number;  // Base chance for 2-lane wave
+  doubleSpawnBase: number; // Base chance for 2-lane wave
   scoreMultiplier: number;
 }
 
@@ -23,15 +41,15 @@ export const DIFFICULTY_SETTINGS: Record<Difficulty, DifficultyConfig> = {
   easy: {
     label: 'Easy',
     speedMultiplier: 1.32, // Slower car speeds
-    minClearanceRows: 6,   // Wider gap between cars (lower spawn rate)
+    minClearanceRows: 6, // Wider gap between cars (lower spawn rate)
     spawnProbability: 0.65,
     doubleSpawnBase: 0.05,
     scoreMultiplier: 1,
   },
   medium: {
     label: 'Medium',
-    speedMultiplier: 1.0,  // Default balanced speed
-    minClearanceRows: 4,   // Standard gap
+    speedMultiplier: 1.0, // Default balanced speed
+    minClearanceRows: 4, // Standard gap
     spawnProbability: 0.85,
     doubleSpawnBase: 0.18,
     scoreMultiplier: 2,
@@ -39,34 +57,17 @@ export const DIFFICULTY_SETTINGS: Record<Difficulty, DifficultyConfig> = {
   hard: {
     label: 'Hard',
     speedMultiplier: 0.72, // Faster car speeds
-    minClearanceRows: 3,   // Tighter gap (higher spawn rate)
+    minClearanceRows: 3, // Tighter gap (higher spawn rate)
     spawnProbability: 1.0,
     doubleSpawnBase: 0.42,
     scoreMultiplier: 3,
   },
 };
 
-export type CellType =
-  | 'empty'
-  | 'track-curb'
-  | 'player-body'
-  | 'player-core'
-  | 'player-turbo'
-  | 'enemy-rose'
-  | 'enemy-amber'
-  | 'enemy-cyan'
-  | 'crash';
-
-export interface GridCell {
-  row: number;
-  col: number;
-  type: CellType;
-}
-
 export interface EnemyCar {
   id: number;
   lane: number; // 0, 1, or 2
-  row: number;  // Top row of the 3x3 sprite (can start at -3 and cascade down to 20)
+  row: number; // Top row of the 3x3 sprite (can start at -3 and cascade down to 19)
   shape: CarShape;
   color: EnemyColor;
   passed: boolean;
@@ -135,8 +136,9 @@ export function getCarCells(
   const cells: { row: number; col: number; isCenter: boolean }[] = [];
 
   for (let r = 0; r < CAR_SIZE; r++) {
+    const patternRow = pattern[r] ?? [];
     for (let c = 0; c < CAR_SIZE; c++) {
-      if (pattern[r][c] === 1) {
+      if (patternRow[c] === 1) {
         cells.push({
           row: topRow + r,
           col: startCol + c,
@@ -201,11 +203,16 @@ export function getTickIntervalMs(
   isTurbo: boolean,
   difficulty: Difficulty = 'medium'
 ): number {
-  const clampedLevel = Math.max(1, Math.min(10, level));
+  const clampedLevel = Math.max(1, Math.min(TUNING.maxLevel, level));
   const diffConfig = DIFFICULTY_SETTINGS[difficulty];
   // Base speed goes from 210ms at level 1 down to 84ms at level 10, scaled by difficulty
-  const baseMs = Math.round((210 - (clampedLevel - 1) * 14) * diffConfig.speedMultiplier);
-  return isTurbo ? Math.max(32, Math.round(baseMs * 0.45)) : baseMs;
+  const baseMs = Math.round(
+    (TUNING.baseTickMs - (clampedLevel - 1) * TUNING.tickMsPerLevel) *
+      diffConfig.speedMultiplier
+  );
+  return isTurbo
+    ? Math.max(TUNING.minTurboTickMs, Math.round(baseMs * TUNING.turboFactor))
+    : baseMs;
 }
 
 /**
@@ -218,8 +225,10 @@ export function calculateTickScore(
   difficulty: Difficulty = 'medium'
 ): number {
   const mult = DIFFICULTY_SETTINGS[difficulty].scoreMultiplier;
-  const survivalPoints = (isTurbo ? 3 : 1) * level * mult;
-  const passBonus = newlyPassedCars * (isTurbo ? 50 : 25) * level * mult;
+  const survivalPoints =
+    (isTurbo ? TUNING.turboSurvivalPoints : TUNING.survivalPoints) * level * mult;
+  const passBonus =
+    newlyPassedCars * (isTurbo ? TUNING.turboPassBonus : TUNING.passBonus) * level * mult;
   return survivalPoints + passBonus;
 }
 
@@ -227,7 +236,10 @@ export function calculateTickScore(
  * Calculates the level (1..10) from total cars passed.
  */
 export function calculateLevelFromPassed(carsPassed: number): number {
-  return Math.min(10, 1 + Math.floor(Math.max(0, carsPassed) / 6));
+  return Math.min(
+    TUNING.maxLevel,
+    1 + Math.floor(Math.max(0, carsPassed) / TUNING.carsPerLevel)
+  );
 }
 
 /**
@@ -256,8 +268,32 @@ export function createInitialState(
   };
 }
 
+/**
+ * Creates a state already in the 'playing' phase with one opening traffic wave.
+ */
+export function createRunningState(
+  highScore = 0,
+  playerShape: CarShape = 'cross',
+  difficulty: Difficulty = 'medium',
+  rng: () => number = Math.random
+): GameStateData {
+  const base = createInitialState(highScore, playerShape, 'playing', difficulty);
+  const { spawned, nextId } = spawnEnemiesIfClear(
+    base.enemies,
+    base.level,
+    base.nextEnemyId,
+    rng,
+    difficulty
+  );
+  return { ...base, enemies: spawned, nextEnemyId: nextId };
+}
+
 const ENEMY_COLORS: EnemyColor[] = ['rose', 'amber', 'cyan'];
 const ENEMY_SHAPES: CarShape[] = ['i-shape', 'cross'];
+
+function pickIndex(rng: () => number, length: number): number {
+  return Math.max(0, Math.min(length - 1, Math.floor(rng() * length)));
+}
 
 /**
  * Spawns new enemy car(s) at the top of the grid if there is sufficient vertical clearance.
@@ -273,12 +309,11 @@ export function spawnEnemiesIfClear(
 ): { spawned: EnemyCar[]; nextId: number } {
   const diffConfig = DIFFICULTY_SETTINGS[difficulty];
   const minClearanceRow =
-    level >= 7 ? Math.max(3, diffConfig.minClearanceRows - 1) : diffConfig.minClearanceRows;
+    level >= TUNING.hardClearanceLevel
+      ? Math.max(3, diffConfig.minClearanceRows - 1)
+      : diffConfig.minClearanceRows;
 
-  const highestEnemy = enemies.reduce(
-    (minRow, e) => Math.min(minRow, e.row),
-    Infinity
-  );
+  const highestEnemy = enemies.reduce((minRow, e) => Math.min(minRow, e.row), Infinity);
 
   if (highestEnemy < minClearanceRow) {
     return { spawned: [], nextId };
@@ -289,41 +324,46 @@ export function spawnEnemiesIfClear(
     return { spawned: [], nextId };
   }
 
-  const availableLanes = [0, 1, 2];
+  const availableLanes = Array.from({ length: LANE_COUNT }, (_, i) => i);
   // Pick primary lane
-  const firstIdx = Math.floor(rng() * availableLanes.length);
-  const firstLane = availableLanes.splice(firstIdx, 1)[0];
+  const firstIdx = pickIndex(rng, availableLanes.length);
+  const [firstLane = 0] = availableLanes.splice(firstIdx, 1);
 
   const spawned: EnemyCar[] = [
     {
       id: nextId++,
       lane: firstLane,
       row: -CAR_SIZE, // Starts just above row 0 and enters smoothly
-      shape: ENEMY_SHAPES[Math.floor(rng() * ENEMY_SHAPES.length)],
-      color: ENEMY_COLORS[Math.floor(rng() * ENEMY_COLORS.length)],
+      shape: ENEMY_SHAPES[pickIndex(rng, ENEMY_SHAPES.length)] ?? 'cross',
+      color: ENEMY_COLORS[pickIndex(rng, ENEMY_COLORS.length)] ?? 'rose',
       passed: false,
     },
   ];
 
   // Double-lane wave chance scales by difficulty and level (never 3, so 1 lane is ALWAYS open!)
   const doubleSpawnChance = Math.min(
-    0.65,
-    diffConfig.doubleSpawnBase + (level - 1) * 0.04
+    TUNING.maxDoubleSpawnChance,
+    diffConfig.doubleSpawnBase + (level - 1) * TUNING.doubleSpawnPerLevel
   );
-  const allowDoubleAtLevel = difficulty === 'hard' ? 1 : 2;
+  const allowDoubleAtLevel =
+    difficulty === 'hard'
+      ? TUNING.hardDoubleSpawnMinLevel
+      : TUNING.doubleSpawnMinLevel;
   if (level >= allowDoubleAtLevel && rng() < doubleSpawnChance) {
-    const hasNearbyCar = enemies.some((e) => e.row < 5);
+    const hasNearbyCar = enemies.some((e) => e.row < TUNING.doubleSpawnMinRow);
     if (!hasNearbyCar) {
-      const secondIdx = Math.floor(rng() * availableLanes.length);
-      const secondLane = availableLanes[secondIdx];
-      spawned.push({
-        id: nextId++,
-        lane: secondLane,
-        row: -CAR_SIZE,
-        shape: ENEMY_SHAPES[Math.floor(rng() * ENEMY_SHAPES.length)],
-        color: ENEMY_COLORS[(Math.floor(rng() * ENEMY_COLORS.length) + 1) % ENEMY_COLORS.length],
-        passed: false,
-      });
+      const secondLane = availableLanes[pickIndex(rng, availableLanes.length)];
+      if (secondLane !== undefined) {
+        const colorIdx = pickIndex(rng, ENEMY_COLORS.length);
+        spawned.push({
+          id: nextId++,
+          lane: secondLane,
+          row: -CAR_SIZE,
+          shape: ENEMY_SHAPES[pickIndex(rng, ENEMY_SHAPES.length)] ?? 'cross',
+          color: ENEMY_COLORS[(colorIdx + 1) % ENEMY_COLORS.length] ?? 'rose',
+          passed: false,
+        });
+      }
     }
   }
 
@@ -366,8 +406,8 @@ export function advanceGameTick(
     if (nowPassed && !enemy.passed) {
       newlyPassedCount++;
     }
-    // Keep enemy while any part of its 3x3 grid is still on screen (row <= 19)
-    if (nextRow <= GRID_ROWS) {
+    // Keep enemy only while any part of its 3x3 grid is still on screen (row <= 19)
+    if (nextRow < GRID_ROWS) {
       movedEnemies.push({
         ...enemy,
         row: nextRow,
@@ -441,84 +481,4 @@ export function advanceGameTick(
     spawnedCount: spawned.length,
     leveledUp,
   };
-}
-
-/**
- * Builds the complete 10x20 grid matrix for rendering the handheld screen.
- */
-export function buildGridMatrix(state: GameStateData): GridCell[][] {
-  const matrix: GridCell[][] = [];
-
-  for (let r = 0; r < GRID_ROWS; r++) {
-    const rowCells: GridCell[] = [];
-    for (let c = 0; c < GRID_COLS; c++) {
-      let type: CellType = 'empty';
-      // Column 9 is the scrolling track strip (2 lit blocks, 2 unlit blocks scrolling down)
-      if (c === TRACK_COL) {
-        const scrollOffset = ((r - state.tickCount) % 4 + 4) % 4;
-        if (scrollOffset < 2) {
-          type = 'track-curb';
-        }
-      }
-      rowCells.push({ row: r, col: c, type });
-    }
-    matrix.push(rowCells);
-  }
-
-  // Paint enemy cars
-  for (const enemy of state.enemies) {
-    const cells = getCarCells(enemy.row, enemy.lane, enemy.shape);
-    const cellType: CellType =
-      enemy.color === 'rose'
-        ? 'enemy-rose'
-        : enemy.color === 'amber'
-          ? 'enemy-amber'
-          : 'enemy-cyan';
-
-    for (const cell of cells) {
-      if (
-        cell.row >= 0 &&
-        cell.row < GRID_ROWS &&
-        cell.col >= 0 &&
-        cell.col < GRID_COLS
-      ) {
-        matrix[cell.row][cell.col].type = cellType;
-      }
-    }
-  }
-
-  // Paint player 3x3 car at bottom
-  const playerCells = getCarCells(PLAYER_ROW, state.playerLane, state.playerShape);
-  for (const cell of playerCells) {
-    if (
-      cell.row >= 0 &&
-      cell.row < GRID_ROWS &&
-      cell.col >= 0 &&
-      cell.col < GRID_COLS
-    ) {
-      if (cell.isCenter) {
-        matrix[cell.row][cell.col].type = 'player-core';
-      } else if (state.isTurbo) {
-        matrix[cell.row][cell.col].type = 'player-turbo';
-      } else {
-        matrix[cell.row][cell.col].type = 'player-body';
-      }
-    }
-  }
-
-  // Paint crash impact cells on top if in gameover state
-  if (state.phase === 'gameover') {
-    for (const crash of state.crashCells) {
-      if (
-        crash.row >= 0 &&
-        crash.row < GRID_ROWS &&
-        crash.col >= 0 &&
-        crash.col < GRID_COLS
-      ) {
-        matrix[crash.row][crash.col].type = 'crash';
-      }
-    }
-  }
-
-  return matrix;
 }

@@ -9,8 +9,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export default defineConfig(() => {
-  // Support both root ('/') in AI Studio and subpath ('/<repo>/') or relative ('./') on GitHub Pages
-  const base = process.env.GITHUB_PAGES_BASE || './';
+  // Root for local dev/preview. CI sets the project-page subpath, e.g. /retro-turbo-racer/.
+  const base = process.env.GITHUB_PAGES_BASE || '/';
 
   return {
     base,
@@ -32,10 +32,13 @@ export default defineConfig(() => {
           short_name: 'TurboRacer',
           description:
             'High-speed 3-lane highway racing inside a nostalgic handheld console with turbo boost and retro synth audio.',
+          lang: 'en',
           theme_color: '#090d16',
           background_color: '#090d16',
           display: 'standalone',
+          display_override: ['standalone', 'minimal-ui'],
           orientation: 'portrait',
+          categories: ['games', 'entertainment'],
           start_url: './',
           scope: './',
           icons: [
@@ -61,39 +64,9 @@ export default defineConfig(() => {
         },
         workbox: {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
-          runtimeCaching: [
-            {
-              urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
-              handler: 'CacheFirst',
-              options: {
-                cacheName: 'google-fonts-cache',
-                expiration: {
-                  maxEntries: 10,
-                  maxAgeSeconds: 60 * 60 * 24 * 365,
-                },
-                cacheableResponse: {
-                  statuses: [0, 200],
-                },
-              },
-            },
-            {
-              urlPattern: /^https:\/\/fonts\.gstatic\.com\/.*/i,
-              handler: 'CacheFirst',
-              options: {
-                cacheName: 'gstatic-fonts-cache',
-                expiration: {
-                  maxEntries: 10,
-                  maxAgeSeconds: 60 * 60 * 24 * 365,
-                },
-                cacheableResponse: {
-                  statuses: [0, 200],
-                },
-              },
-            },
-          ],
         },
         devOptions: {
-          enabled: true,
+          enabled: false,
           type: 'module',
         },
       }),

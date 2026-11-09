@@ -1,156 +1,207 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
+import { describe, expect, it } from 'vitest';
 import {
   GRID_COLS,
   GRID_ROWS,
+  LANE_COUNT,
   PLAYER_ROW,
-  moveLane,
-  getLaneStartCol,
-  getCarCells,
+  calculateLevelFromPassed,
   checkCollision,
-  getTickIntervalMs,
-  calculateTickScore,
   createInitialState,
-  advanceGameTick,
+  createRunningState,
+  getCarCells,
+  getLaneStartCol,
+  getTickIntervalMs,
+  moveLane,
   spawnEnemiesIfClear,
-  buildGridMatrix,
+  advanceGameTick,
+  calculateTickScore,
+  type EnemyCar,
 } from './rules';
 
-test('10x20 grid dimensions and 3 distinct non-overlapping lanes', () => {
-  assert.equal(GRID_COLS, 10);
-  assert.equal(GRID_ROWS, 20);
-  assert.equal(getLaneStartCol(0), 0);
-  assert.equal(getLaneStartCol(1), 3);
-  assert.equal(getLaneStartCol(2), 6);
+describe('grid and lanes', () => {
+  it('has a 10x20 grid and 3 distinct non-overlapping lanes', () => {
+    expect(GRID_COLS).toBe(10);
+    expect(GRID_ROWS).toBe(20);
+    expect(LANE_COUNT).toBe(3);
+    expect(getLaneStartCol(0)).toBe(0);
+    expect(getLaneStartCol(1)).toBe(3);
+    expect(getLaneStartCol(2)).toBe(6);
 
-  // Clamping lane movement across 3 lanes (0, 1, 2)
-  assert.equal(moveLane(0, -1), 0);
-  assert.equal(moveLane(0, 1), 1);
-  assert.equal(moveLane(1, 1), 2);
-  assert.equal(moveLane(2, 1), 2);
-  assert.equal(moveLane(2, -1), 1);
+    expect(moveLane(0, -1)).toBe(0);
+    expect(moveLane(0, 1)).toBe(1);
+    expect(moveLane(1, 1)).toBe(2);
+    expect(moveLane(2, 1)).toBe(2);
+    expect(moveLane(2, -1)).toBe(1);
+  });
+
+  it('generates accurate 3x3 car coordinates', () => {
+    const crossCells = getCarCells(16, 1, 'cross');
+    expect(crossCells).toHaveLength(5);
+    expect(crossCells).toContainEqual({ row: 16, col: 4, isCenter: false });
+    expect(crossCells).toContainEqual({ row: 17, col: 3, isCenter: false });
+    expect(crossCells).toContainEqual({ row: 17, col: 4, isCenter: true });
+    expect(crossCells).toContainEqual({ row: 17, col: 5, isCenter: false });
+    expect(crossCells).toContainEqual({ row: 18, col: 4, isCenter: false });
+
+    const iShapeCells = getCarCells(16, 0, 'i-shape');
+    expect(iShapeCells).toHaveLength(7);
+  });
 });
 
-test('3x3 car shapes generate accurate grid coordinates', () => {
-  const crossCells = getCarCells(16, 1, 'cross');
-  // Cross (+) has 5 occupied blocks
-  assert.equal(crossCells.length, 5);
-  assert.ok(crossCells.some((c) => c.row === 16 && c.col === 4)); // Top nose
-  assert.ok(crossCells.some((c) => c.row === 17 && c.col === 3)); // Left wing
-  assert.ok(crossCells.some((c) => c.row === 17 && c.col === 4 && c.isCenter)); // Center cockpit
-  assert.ok(crossCells.some((c) => c.row === 17 && c.col === 5)); // Right wing
-  assert.ok(crossCells.some((c) => c.row === 18 && c.col === 4)); // Bottom tail
-
-  const iShapeCells = getCarCells(16, 0, 'i-shape');
-  // I-shape has 7 occupied blocks (3 top, 1 middle, 3 bottom)
-  assert.equal(iShapeCells.length, 7);
-});
-
-test('collision detection triggers only when lane and vertical span intersect', () => {
-  const safeEnemy = {
+describe('collision detection', () => {
+  const safeEnemy: EnemyCar = {
     id: 1,
     lane: 0,
     row: PLAYER_ROW,
-    shape: 'cross' as const,
-    color: 'rose' as const,
+    shape: 'cross',
+    color: 'rose',
     passed: false,
   };
-  // Player is in lane 1, enemy is in lane 0 -> no collision
-  const resSafeLane = checkCollision(1, PLAYER_ROW, 'cross', [safeEnemy]);
-  assert.equal(resSafeLane.collided, false);
 
-  // Enemy in same lane (1) but above player at row 12 (occupies 12,13,14 vs player 16,17,18) -> no collision
-  const resSafeRow = checkCollision(1, PLAYER_ROW, 'cross', [
-    { ...safeEnemy, lane: 1, row: 12 },
-  ]);
-  assert.equal(resSafeRow.collided, false);
+  it('ignores cars in other lanes', () => {
+    expect(checkCollision(1, PLAYER_ROW, 'cross', [safeEnemy]).collided).toBe(false);
+  });
 
-  // Enemy in same lane (1) overlapping player at row 15 (occupies 15,16,17 vs player 16,17,18) -> collision!
-  const resCrash = checkCollision(1, PLAYER_ROW, 'cross', [
-    { ...safeEnemy, lane: 1, row: 15 },
-  ]);
-  assert.equal(resCrash.collided, true);
-  assert.ok(resCrash.crashCells.length > 0);
+  it('ignores cars that are vertically clear', () => {
+    expect(
+      checkCollision(1, PLAYER_ROW, 'cross', [{ ...safeEnemy, lane: 1, row: 12 }]).collided
+    ).toBe(false);
+  });
+
+  it('detects an overlapping car in the same lane', () => {
+    const result = checkCollision(1, PLAYER_ROW, 'cross', [
+      { ...safeEnemy, lane: 1, row: 15 },
+    ]);
+    expect(result.collided).toBe(true);
+    expect(result.crashCells.length).toBeGreaterThan(0);
+  });
 });
 
-test('turbo accelerates tick interval and awards extra survival points', () => {
-  const normalInterval = getTickIntervalMs(1, false);
-  const turboInterval = getTickIntervalMs(1, true);
-  assert.ok(turboInterval < normalInterval);
+describe('speed and scoring', () => {
+  it('turbo accelerates the tick interval and awards extra survival points', () => {
+    const normalInterval = getTickIntervalMs(1, false);
+    const turboInterval = getTickIntervalMs(1, true);
+    expect(turboInterval).toBeLessThan(normalInterval);
 
-  const normalScore = calculateTickScore(2, false, 1);
-  const turboScore = calculateTickScore(2, true, 1);
-  assert.ok(turboScore > normalScore);
+    const normalScore = calculateTickScore(2, false, 1);
+    const turboScore = calculateTickScore(2, true, 1);
+    expect(turboScore).toBeGreaterThan(normalScore);
+  });
+
+  it('caps the speed level at 10', () => {
+    expect(calculateLevelFromPassed(0)).toBe(1);
+    expect(calculateLevelFromPassed(6)).toBe(2);
+    expect(calculateLevelFromPassed(10_000)).toBe(10);
+  });
+
+  it('orders difficulty by speed and spawn clearance', () => {
+    const defaultState = createInitialState();
+    expect(defaultState.difficulty).toBe('medium');
+
+    const easyMs = getTickIntervalMs(1, false, 'easy');
+    const mediumMs = getTickIntervalMs(1, false, 'medium');
+    const hardMs = getTickIntervalMs(1, false, 'hard');
+
+    expect(easyMs).toBeGreaterThan(mediumMs);
+    expect(hardMs).toBeLessThan(mediumMs);
+
+    const existingAtRow3: EnemyCar[] = [
+      { id: 1, lane: 0, row: 3, shape: 'cross', color: 'rose', passed: false },
+    ];
+    expect(spawnEnemiesIfClear(existingAtRow3, 1, 2, () => 0.2, 'easy').spawned).toHaveLength(0);
+    expect(spawnEnemiesIfClear(existingAtRow3, 1, 2, () => 0.2, 'medium').spawned).toHaveLength(0);
+    expect(
+      spawnEnemiesIfClear(existingAtRow3, 1, 2, () => 0.2, 'hard').spawned.length
+    ).toBeGreaterThanOrEqual(1);
+
+    const existingAtRow4: EnemyCar[] = [{ ...existingAtRow3[0]!, row: 4 }];
+    expect(spawnEnemiesIfClear(existingAtRow4, 1, 2, () => 0.2, 'easy').spawned).toHaveLength(0);
+    expect(
+      spawnEnemiesIfClear(existingAtRow4, 1, 2, () => 0.2, 'medium').spawned.length
+    ).toBeGreaterThanOrEqual(1);
+  });
 });
 
-test('spawning never blocks all 3 lanes simultaneously', () => {
-  for (let i = 0; i < 30; i++) {
-    const { spawned } = spawnEnemiesIfClear([], 10, 1, () => (i * 0.17) % 1);
-    assert.ok(spawned.length >= 1 && spawned.length <= 2);
-    if (spawned.length === 2) {
-      assert.notEqual(spawned[0].lane, spawned[1].lane);
+describe('spawning', () => {
+  it('never blocks all three lanes simultaneously', () => {
+    for (let i = 0; i < 30; i++) {
+      const { spawned } = spawnEnemiesIfClear([], 10, 1, () => (i * 0.17) % 1);
+      expect(spawned.length).toBeGreaterThanOrEqual(1);
+      expect(spawned.length).toBeLessThanOrEqual(2);
+      if (spawned.length === 2) {
+        expect(spawned[0]!.lane).not.toBe(spawned[1]!.lane);
+      }
     }
-  }
+  });
+
+  it('starts a run in the playing phase with an opening wave', () => {
+    const state = createRunningState(120, 'i-shape', 'hard', () => 0.5);
+    expect(state.phase).toBe('playing');
+    expect(state.highScore).toBe(120);
+    expect(state.playerShape).toBe('i-shape');
+    expect(state.difficulty).toBe('hard');
+    expect(state.enemies.length).toBeGreaterThanOrEqual(1);
+    expect(state.enemies.length).toBeLessThanOrEqual(2);
+    expect(state.nextEnemyId).toBeGreaterThan(1);
+  });
 });
 
-test('advanceGameTick increments score, cascades enemies downward, and triggers gameover on collision', () => {
-  let state = createInitialState(0, 'cross', 'playing');
-  state.enemies = [
-    {
-      id: 1,
-      lane: 1, // Same lane as player
-      row: PLAYER_ROW - 2, // At row 14 (occupies 14,15,16 -> already touching row 16 after 0 or 1 tick)
-      shape: 'cross',
-      color: 'rose',
-      passed: false,
-    },
-  ];
+describe('advanceGameTick', () => {
+  it('cascades enemies downward, scores, and crashes on collision', () => {
+    const state = createInitialState(0, 'cross', 'playing');
+    state.enemies = [
+      {
+        id: 1,
+        lane: 1,
+        row: PLAYER_ROW - 2,
+        shape: 'cross',
+        color: 'rose',
+        passed: false,
+      },
+    ];
 
-  const step = advanceGameTick(state, () => 0.5);
-  assert.equal(step.justCrashed, true);
-  assert.equal(step.nextState.phase, 'gameover');
+    const step = advanceGameTick(state, () => 0.5);
+    expect(step.justCrashed).toBe(true);
+    expect(step.nextState.phase).toBe('gameover');
+    expect(step.nextState.isTurbo).toBe(false);
+    expect(step.nextState.crashCells.length).toBeGreaterThan(0);
+  });
 
-  const matrix = buildGridMatrix(step.nextState);
-  assert.equal(matrix.length, 20);
-  assert.equal(matrix[0].length, 10);
+  it('scores a safe tick and keeps the game running', () => {
+    const state = createInitialState(0, 'cross', 'playing');
+    state.enemies = [
+      {
+        id: 1,
+        lane: 0,
+        row: 2,
+        shape: 'cross',
+        color: 'rose',
+        passed: false,
+      },
+    ];
+
+    const step = advanceGameTick(state, () => 0.99);
+    expect(step.justCrashed).toBe(false);
+    expect(step.nextState.phase).toBe('playing');
+    expect(step.nextState.score).toBeGreaterThan(0);
+    expect(step.nextState.enemies.find((enemy) => enemy.id === 1)?.row).toBe(3);
+  });
+
+  it('drops an enemy once it has fully left the grid', () => {
+    const state = createInitialState(0, 'cross', 'playing');
+    state.nextEnemyId = 2;
+    state.enemies = [
+      {
+        id: 1,
+        lane: 0,
+        row: GRID_ROWS - 1,
+        shape: 'cross',
+        color: 'rose',
+        passed: true,
+      },
+    ];
+
+    const step = advanceGameTick(state, () => 0.99);
+    expect(step.nextState.enemies.some((enemy) => enemy.id === 1)).toBe(false);
+  });
 });
-
-test('difficulty levels: Medium is default, Easy has slower speed & lower spawn rate, Hard has faster speed & higher spawn rate', () => {
-  const defaultState = createInitialState();
-  assert.equal(defaultState.difficulty, 'medium');
-
-  const easyMs = getTickIntervalMs(1, false, 'easy');
-  const mediumMs = getTickIntervalMs(1, false, 'medium');
-  const hardMs = getTickIntervalMs(1, false, 'hard');
-
-  // Easy has slower car speeds (larger interval ms) than Medium, and Hard is faster (smaller interval ms)
-  assert.ok(easyMs > mediumMs, `Expected easyMs (${easyMs}) > mediumMs (${mediumMs})`);
-  assert.ok(hardMs < mediumMs, `Expected hardMs (${hardMs}) < mediumMs (${mediumMs})`);
-
-  // Spawn clearance: with an existing enemy at row 3, Easy & Medium wait, while Hard already spawns!
-  const existingAtRow3 = [
-    {
-      id: 1,
-      lane: 0,
-      row: 3,
-      shape: 'cross' as const,
-      color: 'rose' as const,
-      passed: false,
-    },
-  ];
-  const easySpawn = spawnEnemiesIfClear(existingAtRow3, 1, 2, () => 0.2, 'easy');
-  const mediumSpawn = spawnEnemiesIfClear(existingAtRow3, 1, 2, () => 0.2, 'medium');
-  const hardSpawn = spawnEnemiesIfClear(existingAtRow3, 1, 2, () => 0.2, 'hard');
-
-  assert.equal(easySpawn.spawned.length, 0);
-  assert.equal(mediumSpawn.spawned.length, 0);
-  assert.ok(hardSpawn.spawned.length >= 1);
-
-  // At row 4, Medium spawns while Easy still waits until row 6
-  const existingAtRow4 = [{ ...existingAtRow3[0], row: 4 }];
-  const easySpawnAt4 = spawnEnemiesIfClear(existingAtRow4, 1, 2, () => 0.2, 'easy');
-  const mediumSpawnAt4 = spawnEnemiesIfClear(existingAtRow4, 1, 2, () => 0.2, 'medium');
-  assert.equal(easySpawnAt4.spawned.length, 0);
-  assert.ok(mediumSpawnAt4.spawned.length >= 1);
-});
-
